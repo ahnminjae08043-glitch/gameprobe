@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import { Session } from '../src/session.js';
+const s = new Session();
+const t0 = Date.now();
+console.log(await s.open({ dir: process.argv[2] }));
+fs.writeFileSync('out/0-open.jpg', Buffer.from(await s.screenshot({ scale: 1 }), 'base64'));
+console.log(await s.input([{ type: 'mouse', action: 'click' }]));
+console.log('locked?', await s.eval('ASCEND.input.locked'));
+console.log(JSON.stringify(await s.step({ frames: 60, watch: ['ASCEND.climber.pos.y', 'ASCEND.climber.grabCount'] })));
+fs.writeFileSync('out/1-step.jpg', Buffer.from(await s.screenshot({ scale: 1 }), 'base64'));
+const fs2 = await s.filmstrip({ frames: 120, shots: 8, look: { dx: 0, dy: -6 }, hold: { buttons: ['left'] }, watch: ['ASCEND.climber.pos.y'] });
+fs.writeFileSync('out/2-film.jpg', Buffer.from(fs2.sheet, 'base64'));
+console.log(JSON.stringify(fs2.summary));
+console.log(s.getLogs());
+console.log('ms', Date.now() - t0);
+await s.close();

@@ -1,0 +1,32 @@
+{
+  "name": "gameprobe",
+  "version": "0.1.0",
+  "description": "Let coding agents play, see and verify web games",
+  "main": "src/session.js",
+  "scripts": {
+    "test": "node test/mcp-e2e.mjs ../ascend && node test/determinism.mjs ../ascend"
+  },
+  "keywords": [
+    "mcp",
+    "game",
+    "testing",
+    "playwright",
+    "ai-agent",
+    "webgl",
+    "threejs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "playwright": "^1.64.0",
+    "zod": "^4.6.7"
+  },
+  "bin": {
+    "gameprobe": "src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

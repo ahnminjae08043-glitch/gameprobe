@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buggy Platformer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14161c; overflow: hidden; }
+  canvas { display: block; margin: 0 auto; image-rendering: pixelated; }
+  #hud { position: fixed; top: 10px; left: 14px; color: #e8e8e8; font: 14px monospace; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<div id="hud"></div>
+<script>
+// A tiny platformer used as the gameprobe demo.
+const cv = document.getElementById('c');
+const g = cv.getContext('2d');
+const hud = document.getElementById('hud');
+
+const GRAVITY = 3600, MOVE = 260, JUMP = 930, MAX_FALL = 1650;
+const level = [
+  { x: 0,   y: 500, w: 600, h: 40, color: '#3b4252' },   // ground, ends at the pit
+  { x: 120, y: 420, w: 140, h: 14, color: '#5e81ac' },
+  { x: 300, y: 340, w: 140, h: 14, color: '#5e81ac' },
+  { x: 480, y: 260, w: 140, h: 14, color: '#5e81ac' },
+  { x: 660, y: 180, w: 140, h: 14, color: '#5e81ac' },
+  { x: 820, y: 80,  w: 120, h: 14, color: '#bf616a' },   // tower top
+  { x: 600, y: 470, w: 360, h: 4,  color: '#a3be8c' },   // thin bridge over the pit
+];
+const coin = { x: 900, y: 50, taken: false };
+
+const player = { x: 40, y: 470, w: 20, h: 24, vx: 0, vy: 0, onGround: false, deaths: 0 };
+const keys = new Set();
+addEventListener('keydown', (e) => keys.add(e.code));
+addEventListener('keyup', (e) => keys.delete(e.code));
+
+function overlaps(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function update(dt) {
+  player.vx = (keys.has('ArrowRight') ? MOVE : 0) - (keys.has('ArrowLeft') ? MOVE : 0);
+  if ((keys.has('Space') || keys.has('ArrowUp')) && player.onGround) player.vy = -JUMP;
+  player.vy = Math.min(MAX_FALL, player.vy + GRAVITY * dt);
+
+  player.x += player.vx * dt;
+  for (const p of level) if (overlaps(player, p)) player.x = player.vx > 0 ? p.x - player.w : p.x + p.w;
+
+  player.y += player.vy * dt;
+  player.onGround = false;
+  for (const p of level) {
+    if (!overlaps(player, p)) continue;
+    if (player.vy > 0) { player.y = p.y - player.h; player.onGround = true; }
+    else player.y = p.y + p.h;
+    player.vy = 0;
+  }
+
+  if (!coin.taken && Math.hypot(player.x + 10 - coin.x, player.y + 12 - coin.y) < 24) coin.taken = true;
+  if (player.y > 700) { player.deaths++; Object.assign(player, { x: 40, y: 470, vx: 0, vy: 0 }); }
+}
+
+function draw() {
+  g.fillStyle = '#1d2129'; g.fillRect(0, 0, cv.width, cv.height);
+  for (const p of level) { g.fillStyle = p.color; g.fillRect(p.x, p.y, p.w, p.h); }
+  if (!coin.taken) { g.fillStyle = '#ebcb8b'; g.beginPath(); g.arc(coin.x, coin.y, 9, 0, 7); g.fill(); }
+  g.fillStyle = '#eceff4'; g.fillRect(player.x, player.y, player.w, player.h);
+  g.fillStyle = '#14161c'; g.fillRect(player.x + 12, player.y + 6, 4, 4);
+  hud.textContent = `coin: ${coin.taken ? 'yes' : 'no'}   deaths: ${player.deaths}`;
+}
+
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(1 / 30, (now - last) / 1000);
+  last = now;
+  update(dt);
+  draw();
+}
+requestAnimationFrame(frame);
+
+window.game = { player, level, coin };
+</script>
+</body>
+</html>
