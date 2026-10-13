@@ -28,7 +28,7 @@ export function shim(seed) {
   const dateBase = realDateNow() - realNow();
 
   let paused = true;
-  let vt = realNow();       // 멈춰 있을 때의 가상 시각 (ms)
+  let vt = 0;               // 멈춰 있을 때의 가상 시각 (ms). 0에서 시작해야 실행마다 절대 시각까지 같다
   let offset = 0;           // 돌아갈 때: clock = realNow() - offset
   const clock = () => (paused ? vt : realNow() - offset);
 
@@ -77,6 +77,53 @@ export function shim(seed) {
     }));
   }
 
+  // ---------- 반사 코드 (game_control) ----------
+  // 에이전트(느림)가 짠 코드를 매 프레임(빠름) 실행한다. 코드는 원하는 입력 상태만 돌려주고,
+  // 여기서 이전 프레임과 비교해 keydown/keyup, mousedown/mouseup 을 만들어 넣는다.
+  const KEYCODE = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Space: 32, Enter: 13, Escape: 27,
+    ShiftLeft: 16, ShiftRight: 16, ControlLeft: 17, ControlRight: 17, AltLeft: 18, Tab: 9, Backspace: 8 };
+  const keyOf = (code) => (code.startsWith('Key') ? code.slice(3).toLowerCase() : code.startsWith('Digit') ? code.slice(5)
+    : code === 'Space' ? ' ' : code);
+  const keyCodeOf = (code) => KEYCODE[code] || (code.startsWith('Key') ? code.charCodeAt(3) : code.startsWith('Digit') ? code.charCodeAt(5) : 0);
+  function sendKey(type, code) {
+    const e = new KeyboardEvent(type, { code, key: keyOf(code), bubbles: true, cancelable: true, composed: true });
+    const kc = keyCodeOf(code);
+    Object.defineProperty(e, 'keyCode', { get: () => kc });
+    Object.defineProperty(e, 'which', { get: () => kc });
+    (document.activeElement || document.body).dispatchEvent(e);
+  }
+  const BTN = { left: 0, middle: 1, right: 2 };
+  function sendButton(type, b) {
+    const target = lockEl || document.elementFromPoint(mx, my) || document.body;
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, button: BTN[b] ?? 0,
+      buttons: type === 'mousedown' ? 1 << (BTN[b] ?? 0) : 0, clientX: mx, clientY: my }));
+    target.dispatchEvent(new PointerEvent(type === 'mousedown' ? 'pointerdown' : 'pointerup', { bubbles: true, button: BTN[b] ?? 0, clientX: mx, clientY: my, pointerType: 'mouse' }));
+  }
+  let ctl = null;
+  function runPolicy() {
+    const c = ctl;
+    const ctx = { frame, i: c.i++, t: clock(), dt: c.dt, mem: c.mem, held: [...c.keys], buttons: [...c.buttons],
+      log: (m) => { if (c.logs.length < 200) c.logs.push([frame, String(m).slice(0, 200)]); } };
+    let r;
+    try { r = c.fn(ctx) || {}; } catch (e) {
+      // 첫 줄(메시지)과 정책 코드 안의 위치만 남긴다
+      const lines = String((e && e.stack) || e).split('\n');
+      const at = lines.find((l) => l.includes('<anonymous>:') && l.includes('setPolicy'));
+      const m = at && at.match(/<anonymous>:(\d+):(\d+)/);
+      c.error = { frame, i: ctx.i, error: lines[0] + (m ? ` (policy line ${m[1] - 2}, col ${m[2]})` : '') };
+      return false;
+    }
+    const wantK = new Set(r.keys || []), wantB = new Set(r.buttons || []);
+    for (const k of c.keys) if (!wantK.has(k)) sendKey('keyup', k);
+    for (const k of wantK) if (!c.keys.has(k)) sendKey('keydown', k);
+    for (const b of c.buttons) if (!wantB.has(b)) sendButton('mouseup', b);
+    for (const b of wantB) if (!c.buttons.has(b)) sendButton('mousedown', b);
+    c.keys = wantK; c.buttons = wantB;
+    if (r.look && (r.look.dx || r.look.dy)) look(r.look.dx || 0, r.look.dy || 0);
+    c.inputFrames += wantK.size || wantB.size ? 1 : 0;
+    return true;
+  }
+
   // ---------- 관찰 ----------
   const compile = (expr) => {
     try { return new Function(`return (${expr});`); }
@@ -123,12 +170,12 @@ export function shim(seed) {
   }
 
   // 시계열을 짧게: 숫자면 처음/끝/최소/최대와 표본 몇 개, 그 외에는 값이 바뀐 순간만
-  function summarize(samples) {
+  function summarize(samples, maxSamples = 12) {
     const nums = samples.filter(([, v]) => typeof v === 'number');
     if (nums.length === samples.length && nums.length) {
       const vs = nums.map(([, v]) => v);
       const pick = [];
-      const k = Math.max(1, Math.ceil(nums.length / 12));
+      const k = Math.max(1, Math.ceil(nums.length / maxSamples));
       for (let i = 0; i < nums.length; i += k) pick.push(nums[i]);
       if (pick[pick.length - 1] !== nums[nums.length - 1]) pick.push(nums[nums.length - 1]);
       const min = Math.min(...vs), max = Math.max(...vs);
@@ -147,6 +194,21 @@ export function shim(seed) {
   }
 
   window.__gp = {
+    // 반사 코드 설치/해제. code 는 ctx 를 받아 { keys, buttons, look } 을 돌려주는 함수 본문.
+    setPolicy(code, dt) {
+      let fn;
+      try { fn = new Function('ctx', code); } catch (e) { return { ok: false, error: 'policy does not compile: ' + e.message }; }
+      ctl = { fn, dt, i: 0, mem: {}, keys: new Set(), buttons: new Set(), logs: [], error: null, inputFrames: 0 };
+      return { ok: true };
+    },
+    clearPolicy() {
+      if (!ctl) return null;
+      for (const k of ctl.keys) sendKey('keyup', k);
+      for (const b of ctl.buttons) sendButton('mouseup', b);
+      const out = { logs: ctl.logs, error: ctl.error, framesWithInput: ctl.inputFrames, mem: snapshot(ctl.mem, 2) };
+      ctl = null;
+      return out;
+    },
     get frame() { return frame; },
     get paused() { return paused; },
     pending: () => cbs.size,
@@ -158,7 +220,7 @@ export function shim(seed) {
 
     // n 프레임을 dt(ms) 간격으로 진행. 매 프레임 시선 델타를 넣고, watch 식을 표본 추출하고,
     // until 식이 참이 되면 멈춘다.
-    step({ frames = 1, dt = 1000 / 60, lookDx = 0, lookDy = 0, watch = [], until = null, every = 1, speed = 0 } = {}) {
+    step({ frames = 1, dt = 1000 / 60, lookDx = 0, lookDy = 0, watch = [], until = null, every = 1, speed = 0, samples = 12 } = {}) {
       this.pause();
       const ws = watch.map(compile);
       const series = watch.map(() => []);
@@ -168,6 +230,7 @@ export function shim(seed) {
 
       // 한 프레임 진행. 멈춰야 하면 true
       const tick = (i) => {
+        if (ctl && !runPolicy()) return true;   // 반사 코드가 에러를 내면 바로 멈춘다
         if (lookDx || lookDy) look(lookDx, lookDy);
         vt += dt;
         runFrame();
@@ -190,7 +253,7 @@ export function shim(seed) {
       const finish = () => {
         const out = { framesRun: ran, frame, gameTimeMs: Math.round(clock()) };
         if (stop) out.untilMet = met;
-        if (watch.length) out.watch = Object.fromEntries(watch.map((w, j) => [w, summarize(series[j])]));
+        if (watch.length) out.watch = Object.fromEntries(watch.map((w, j) => [w, summarize(series[j], samples)]));
         const errs = errors.slice(e0);
         if (errs.length) out.frameErrors = errs.slice(0, 5).map((e) => ({ frame: e.frame, error: e.error.slice(0, 600) })).concat(errs.length > 5 ? [{ more: errs.length - 5 }] : []);
         if (!cbs.size) out.warning = 'no requestAnimationFrame callback is pending: the game loop may have stopped or not started yet';

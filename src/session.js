@@ -138,7 +138,7 @@ export class Session {
   }
 
   // 누르고 있을 키·버튼을 잡은 채로 프레임을 진행한다
-  async step({ frames = 1, dt, hold = {}, look, watch = [], until, every = 1, release = true } = {}) {
+  async step({ frames = 1, dt, hold = {}, look, watch = [], until, every = 1, release = true, samples } = {}) {
     const page = this.need();
     const keys = hold.keys || [];
     const buttons = hold.buttons || [];
@@ -154,7 +154,7 @@ until ${until}` : ''));
       result = await page.evaluate((o) => window.__gp.step(o), {
         speed: this.speed,
         frames: nFrames, dt: dtMs, lookDx: num(look?.dx, 0), lookDy: num(look?.dy, 0),
-        watch, until, every: Math.max(1, Math.round(num(every, 1))),
+        watch, until, every: Math.max(1, Math.round(num(every, 1))), samples: Math.min(200, Math.max(2, Math.round(num(samples, 12)))),
       });
     } finally {
       if (release) {
@@ -202,8 +202,20 @@ until ${until}` : ''));
       const b64 = (await page.screenshot({ type: 'jpeg', quality: 70 })).toString('base64');
       tiles.push({ b64, label: `f${r.frame}` });
     }
-    // 합성은 페이지 안의 2D 캔버스로 한다 (이미지 라이브러리 의존성 없이)
-    const sheet = await page.evaluate(async ([tiles, cols, s]) => {
+    const sheet = await this.composeSheet(tiles, cols, scale);
+
+    const last = results[results.length - 1];
+    const summary = { framesRun: results.reduce((a, r) => a + r.framesRun, 0), frame: last.frame, gameTimeMs: last.gameTimeMs, tiles: tiles.map((t) => t.label) };
+    const lastOf = (s) => (!s ? null : 'constant' in s ? s.constant : 'last' in s ? s.last : s.changes?.at(-1)?.[1] ?? null);
+    if (watch.length) summary.watchAtEachTile = Object.fromEntries(watch.map((w) => [w, results.map((r) => lastOf(r.watch?.[w]))]));
+    const errs = results.flatMap((r) => r.frameErrors || []);
+    if (errs.length) summary.frameErrors = errs.slice(0, 5);
+    return { sheet, summary };
+  }
+
+  // 합성은 페이지 안의 2D 캔버스로 한다 (이미지 라이브러리 의존성 없이)
+  async composeSheet(tiles, cols, scale) {
+    return this.page.evaluate(async ([tiles, cols, s]) => {
       const imgs = await Promise.all(tiles.map(async (t) => { const im = new Image(); im.src = 'data:image/jpeg;base64,' + t.b64; await im.decode(); return im; }));
       const w = Math.round(imgs[0].width * s), h = Math.round(imgs[0].height * s);
       const rows = Math.ceil(imgs.length / cols);
@@ -220,14 +232,48 @@ until ${until}` : ''));
       });
       return c.toDataURL('image/jpeg', 0.75).split(',')[1];
     }, [tiles, cols, scale]);
+  }
 
+  // 반사 코드를 매 프레임 실행하며 진행한다. LLM은 느리게 코드를 짜고, 코드는 빠르게 조작한다.
+  async control({ policy, frames = 600, dt, watch = [], until, every, samples, shots = 0, cols = 4, scale = 0.3, reset = false } = {}) {
+    if (reset) { if (!this.lastOpen) throw new Error('no game was opened yet'); await this.open({ ...this.lastOpen }); }
+    const page = this.need();
+    const set = await page.evaluate(([c, d]) => window.__gp.setPolicy(c, d), [policy, num(dt, 1000 / 60)]);
+    if (!set.ok) return { ok: false, error: set.error };
+    const total = Math.round(num(frames, 600));
+    const per = Math.ceil(total / Math.max(1, shots));
+    const results = [], tiles = [];
+    let done = 0, pol = null;
+    try {
+      while (done < total) {
+        const n = Math.min(per, total - done);
+        const r = await this.step({ frames: n, dt, watch, until, every, samples });
+        results.push(r);
+        done += r.framesRun;
+        if (shots > 0) tiles.push({ b64: (await page.screenshot({ type: 'jpeg', quality: 70 })).toString('base64'), label: `f${r.frame}` });
+        if (r.untilMet || r.framesRun < n) break; // until 충족 또는 반사 코드 에러
+      }
+    } finally {
+      pol = await page.evaluate(() => window.__gp.clearPolicy());
+    }
     const last = results[results.length - 1];
-    const summary = { framesRun: results.reduce((a, r) => a + r.framesRun, 0), frame: last.frame, gameTimeMs: last.gameTimeMs, tiles: tiles.map((t) => t.label) };
-    const lastOf = (s) => (!s ? null : 'constant' in s ? s.constant : 'last' in s ? s.last : s.changes?.at(-1)?.[1] ?? null);
-    if (watch.length) summary.watchAtEachTile = Object.fromEntries(watch.map((w) => [w, results.map((r) => lastOf(r.watch?.[w]))]));
+    const out = { ok: !pol?.error, framesRun: done, controlTimeMs: Math.round(done * num(dt, 1000 / 60)), frame: last.frame, gameTimeMs: last.gameTimeMs };
+    if (until) out.untilMet = !!last.untilMet;
+    if (pol?.error) out.policyError = pol.error;
+    out.framesWithInput = pol?.framesWithInput;
+    if (pol?.logs?.length) out.policyLog = pol.logs;
+    if (pol?.mem && Object.keys(pol.mem).length) out.mem = pol.mem;
+    if (watch.length) {
+      if (results.length === 1) out.watch = last.watch;
+      else {
+        const lastOf = (x) => (!x ? null : 'constant' in x ? x.constant : 'last' in x ? x.last : x.changes?.at(-1)?.[1] ?? null);
+        out.watchAtEachTile = Object.fromEntries(watch.map((w) => [w, results.map((r) => lastOf(r.watch?.[w]))]));
+      }
+    }
     const errs = results.flatMap((r) => r.frameErrors || []);
-    if (errs.length) summary.frameErrors = errs.slice(0, 5);
-    return { sheet, summary };
+    if (errs.length) out.frameErrors = errs.slice(0, 5);
+    if (tiles.length) out.tiles = tiles.map((t) => t.label);
+    return { summary: out, sheet: tiles.length ? await this.composeSheet(tiles, cols, scale) : null };
   }
 
   // 식이면 값을, 문장이면 함수 본문으로 실행한다. 결과는 읽을 수 있는 크기로 줄인다.

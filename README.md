@@ -31,6 +31,33 @@ game_run { sweep: { name: "fps", values: [144, 60, 45, 30, 20] }, steps: [...wal
 fps 144 → landed   fps 60 → landed   fps 45 → landed   fps 30 → DIED   fps 20 → DIED
 ```
 
+## Human speed: the agent coaches, code plays
+
+An LLM needs seconds per decision, far too slow to play anything in real time. So it doesn't. With `game_control`
+the agent writes a small controller (a JS function) and gameprobe runs it **every frame** inside the game. The agent
+watches the result (log, watched values, filmstrip), fixes the code and reruns. Time is virtual, so every attempt
+from `reset: true` is identical, and a fix can be checked down to a single frame.
+
+```js
+// game_control { reset: true, until: "game.coin.taken && game.player.x <= 40", policy: ... }
+const p = game.player;
+if (!ctx.mem.got && game.coin.taken) ctx.mem.got = true;
+if (ctx.mem.got) return { keys: ['ArrowLeft'] };
+return { keys: p.onGround && p.x > 730 ? ['ArrowRight', 'Space'] : ['ArrowRight'] };
+```
+
+A blind agent that had never seen the demo platformer got the coin and came home in **5 attempts**:
+
+| Attempt | What changed | Result |
+|---|---|---|
+| 1 | jump at the right edge of every platform | hit its head under the top platform, died (found in the log) |
+| 2 | jump earlier on platform 4 | coin and home, 6.43 s |
+| 3–4 | time the coin hop one frame earlier each time | **6.37 s, 0 deaths** |
+| 5 | one more frame earlier | missed the coin, so it went back to attempt 4 |
+
+The agent worked out that 6.37 s is the floor: a 827.7 px round trip at 260 px/s, 382 frames, none wasted.
+The same controller also finished unchanged at 30 fps.
+
 ## How it works
 
 | Problem | What gameprobe does |
@@ -48,6 +75,7 @@ fps 144 → landed   fps 60 → landed   fps 45 → landed   fps 30 → DIED   f
 |---|---|
 | `game_open` | Open a folder (served for you, no cache) or a URL. Starts paused. |
 | `game_step` | Advance N frames at `dt`, holding keys/buttons, moving the view, with `watch` / `until`. |
+| `game_control` | Run your controller every frame (keys / buttons / look from game state). Human speed and faster. |
 | `game_run` | A whole scenario in one call. Add `sweep` to rerun it from a fresh, identical state for each value. |
 | `game_input` | One-off key / mouse / text / wheel / look events (trusted events, not synthetic). |
 | `game_filmstrip` | Grid image of frames over time. |

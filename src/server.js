@@ -114,6 +114,7 @@ server.registerTool('game_step', {
     hold: Hold, look: Look,
     watch: z.array(z.string()).optional().describe('JS expressions evaluated in the page each frame, e.g. "player.x", "game.state", "scene.children.length"'),
     every: z.number().int().optional().describe('Sample watch every N frames (default 1)'),
+    samples: z.number().int().min(2).max(200).optional().describe('Max samples kept per numeric watch series (default 12)'),
     until: z.string().optional().describe('Stop as soon as this JS expression is truthy, e.g. "player.y < -50"'),
     screenshot: z.boolean().optional().describe('Return a screenshot of the last frame (default false)'),
   },
@@ -141,6 +142,35 @@ server.registerTool('game_run', {
     reload: z.boolean().optional().describe('Reopen fresh before running. Default: true with sweep, false without'),
   },
 }, wrap(async (a) => [text(await session.run(a))]));
+
+server.registerTool('game_control', {
+  title: 'Run a controller (reflexes)',
+  description: `You are too slow to play in real time (seconds per decision); code is not. Write a controller and gameprobe runs it EVERY FRAME inside the game, before the game's own update. Then look at what happened and improve the code. This is how you play at human speed or faster.
+
+policy is a JS function body. It receives ctx and returns the input state wanted for this frame:
+  return { keys: ["ArrowRight", "Space"], buttons: ["left"], look: { dx: 3, dy: 0 } }
+Keys/buttons listed are held down; anything not listed is released (keydown/keyup events are generated for you). Read game state from page globals directly (e.g. game.player.x). ctx = { frame (global), i (frames since this controller started), t, dt, mem, held, buttons, log(msg) }: mem persists across frames for your own state machine; log() records up to 200 lines with frame numbers. When until becomes true the run stops on that frame, after your policy already ran for it.
+Example: const p = game.player; if (!ctx.mem.phase) ctx.mem.phase = "run"; if (p.x > 600 && p.onGround) { ctx.log("jump at " + p.x); return { keys: ["ArrowRight", "Space"] }; } return { keys: ["ArrowRight"] };
+Runs on virtual time like game_step, so results are deterministic: fix the code and rerun from the same state (use game_open again, or game_run with steps [{eval: ...}] style setup). Web mode only for now.`,
+  inputSchema: {
+    policy: z.string().describe('JS function body; gets ctx, returns { keys?, buttons?, look? }'),
+    frames: z.number().int().min(1).max(36000).optional().describe('Default 600 (10 s at 60 fps)'),
+    dt: z.number().optional().describe('Milliseconds per frame, default 16.667'),
+    until: z.string().optional().describe('Stop when this JS expression is truthy, e.g. "game.coin.taken || game.player.deaths > 0"'),
+    watch: z.array(z.string()).optional(), every: z.number().int().optional(),
+    samples: z.number().int().min(2).max(200).optional().describe('Max samples per numeric watch series (default 12)'),
+    reset: z.boolean().optional().describe('Reopen the game fresh (same seed) before running, so each attempt starts from the identical state'),
+    shots: z.number().int().min(0).max(24).optional().describe('Also return a filmstrip: the run is split into this many equal parts and the screen is captured after each. If until stops the run early, fewer tiles are returned (default 0)'),
+    cols: z.number().int().min(1).max(8).optional(), scale: z.number().min(0.1).max(1).optional(),
+  },
+}, wrap(async (a) => {
+  if (!session.control) throw new Error('game_control is web-only for now');
+  const r = await session.control(a);
+  if (r.ok === false) return [text(r)];
+  const out = [text(r.summary)];
+  if (r.sheet) out.push(image(r.sheet));
+  return out;
+}));
 
 server.registerTool('game_screenshot', {
   title: 'Screenshot',
