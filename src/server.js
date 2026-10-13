@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { Session } from './session.js';
+import { NativeSession } from './native.js';
 
 const INSTRUCTIONS = `gameprobe lets you play and verify a web game (canvas/WebGL/three.js/Phaser/etc.) without changing its code.
 
@@ -22,9 +23,19 @@ Typical loop:
 5. game_eval to read or poke state; game_logs for console errors, failed requests and exceptions thrown inside frames.
 
 To find bugs, state the expectation as an until/watch expression (e.g. until: "player.y < -50" to catch falling
-through the floor) rather than eyeballing screenshots.`;
+through the floor) rather than eyeballing screenshots.
 
-const session = new Session();
+NATIVE MODE (any engine: Unity/Unreal/Godot builds, any Windows game): game_open {exe} launches it, or {window: "title regex"}
+attaches to a running one. There is no access to internals, so: time is real but the process is FROZEN between your
+calls and runs only during game_step (use ms); state comes from the screen (screenshots, filmstrip, and
+untilScreen {region, change} or {region, color} to stop when part of the screen changes). game_eval and game_run
+are unavailable. Input is real OS input (scancodes), so it also moves the user's actual mouse. Prefer keyboard
+navigation for menus (Enter / arrows): many engine UIs ignore synthetic clicks. Never touch games with anti-cheat.`;
+
+// 열린 게임 종류에 따라 웹 세션 또는 네이티브 세션을 쓴다. 도구는 같다.
+const web = new Session();
+const native = new NativeSession();
+let session = web;
 const server = new McpServer({ name: 'gameprobe', version: '0.1.0' }, { instructions: INSTRUCTIONS });
 
 const text = (obj) => ({ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj) });
@@ -43,8 +54,15 @@ const Look = z.object({ dx: z.number(), dy: z.number() }).optional()
 
 server.registerTool('game_open', {
   title: 'Open a game',
-  description: 'Launch a headless browser (installed Chrome/Edge, real GPU) and open the game. Give a local folder (served for you, no cache) or a URL. Closes any previously open game. Starts paused.',
+  description: 'Open a game. Web: give dir (served for you) or url; runs in a headless browser with virtual time. Native (any engine, Windows): give exe to launch, or window (title/exe regex) or pid to attach; the process is frozen between calls. Closes any previously open game. Starts paused.',
   inputSchema: {
+    exe: z.string().optional().describe('Native: path to the game executable to launch'),
+    args: z.array(z.string()).optional().describe('Native: command line arguments'),
+    window: z.string().optional().describe('Native: attach to a running game whose window title or process name matches this regex'),
+    pid: z.number().int().optional().describe('Native: attach to this process id'),
+    startupMs: z.number().optional().describe('Native: wait this long after the window appears (splash screens)'),
+    keepRunning: z.boolean().optional().describe('Native: leave the game running after game_close (default: close games you launched)'),
+    allowAntiCheat: z.boolean().optional().describe('Native: override the anti-cheat refusal. Only for your own game.'),
     dir: z.string().optional().describe('Folder containing index.html'),
     path: z.string().optional().describe('Path inside dir, default "/"'),
     url: z.string().optional().describe('Use instead of dir for an already running server'),
@@ -57,6 +75,8 @@ server.registerTool('game_open', {
     seed: z.number().int().nullable().optional().describe('Math.random seed for reproducible runs (default 1). null keeps the real Math.random'),
   },
 }, wrap(async (a) => {
+  await web.close(); await native.close();
+  session = a.exe || a.window || a.pid ? native : web;
   const info = await session.open(a);
   const out = [text(info)];
   if (a.screenshot !== false) out.push(image(await session.screenshot()));
@@ -83,6 +103,14 @@ server.registerTool('game_step', {
   inputSchema: {
     frames: z.number().int().min(1).max(36000).optional(),
     dt: z.number().optional().describe('Milliseconds per frame, default 16.667'),
+    ms: z.number().optional().describe('Native: real milliseconds to let the game run (default frames*16.7)'),
+    untilScreen: z.object({
+      region: z.array(z.number()).length(4).optional().describe('[x, y, w, h] in window pixels, default whole window'),
+      change: z.number().optional().describe('Stop when the region as a whole differs from its state at the start by this much (0..1 mean over a 16x16 grid, e.g. 0.1). Good for scene changes'),
+      anyChange: z.number().optional().describe('Stop when ANY one cell of the 16x16 grid changes by this much (0..1, e.g. 0.08; an idle screen measures 0). Good for a menu highlight, a line of text or a popup on a dark screen'),
+      color: z.string().optional().describe('Stop when the region average colour is within tolerance of this #rrggbb'),
+      tolerance: z.number().optional(),
+    }).optional().describe('Native: stop as soon as part of the screen changes or turns a colour. Without region, the comparison base is the screen just BEFORE your last game_input (so "press a key, then wait for a reaction" works); otherwise the screen at the start of this step'),
     hold: Hold, look: Look,
     watch: z.array(z.string()).optional().describe('JS expressions evaluated in the page each frame, e.g. "player.x", "game.state", "scene.children.length"'),
     every: z.number().int().optional().describe('Sample watch every N frames (default 1)'),
@@ -129,6 +157,7 @@ server.registerTool('game_filmstrip', {
     cols: z.number().int().min(1).max(8).optional().describe('Default 4'),
     scale: z.number().min(0.1).max(1).optional().describe('Tile scale, default 0.3'),
     hold: Hold, look: Look, dt: z.number().optional(),
+    ms: z.number().optional().describe('Native: total real milliseconds to cover'),
     watch: z.array(z.string()).optional().describe('Values reported at each tile'),
   },
 }, wrap(async (a) => {
@@ -166,7 +195,7 @@ server.registerTool('game_close', {
   inputSchema: {},
 }, wrap(async () => { await session.close(); return [text('closed')]; }));
 
-const shutdown = async () => { await session.close(); process.exit(0); };
+const shutdown = async () => { await native.close(); await web.close(); process.exit(0); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 process.stdin.on('close', shutdown);

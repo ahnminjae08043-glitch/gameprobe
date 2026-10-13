@@ -71,6 +71,34 @@ Any MCP client works. The command is `node /absolute/path/to/gameprobe/src/serve
 Then ask your agent something like *"open my game in ./game with gameprobe and check that the player can't
 fall through platforms at low frame rates"*.
 
+## Any game, any engine (native mode, Windows)
+
+Not a web game? Point gameprobe at the executable, or at a window that is already open:
+
+```
+game_open { exe: "C:/Games/MyGame/MyGame.exe" }     # launch
+game_open { window: "MyGame" }                      # attach to a running game
+```
+
+There is no way to look inside a compiled game from the outside, so native mode trades internals for the screen:
+
+| | Web mode | Native mode |
+|---|---|---|
+| Time | virtual, deterministic | real, but the game process is **frozen between your calls** (suspended), so nothing happens while the agent thinks |
+| Input | browser events | OS scancodes and mouse (raw-input games accept them) |
+| State | `watch` / `until` on JS values | `untilScreen`: stop when the screen, or one cell of it, changes or turns a colour |
+| Reset / sweeps | `game_run` | not available |
+
+Tested on an Unreal Engine D3D12 game. It went through the main menu, save slots, weapon selection and story
+screen with the keyboard, then walked and turned the camera. The game's own tutorial checklist ticked "movement"
+and "camera". Things learned the hard way:
+
+- Many engine UIs ignore synthetic mouse clicks on menus. Use the keyboard (Enter / arrows).
+- The helper is a small C# program compiled on first use with the `csc.exe` that ships with Windows. Nothing to install.
+- **Games with anti-cheat are refused** (EasyAntiCheat, BattlEye, Vanguard, ...). Injecting input into them or
+  suspending them can get an account banned.
+- Native input moves the real mouse and keyboard while a step runs. Don't use the PC at the same time.
+
 ## Watch it play
 
 Spectator mode opens a real window, paces the frames in real time and captions what the agent is doing.
@@ -87,7 +115,8 @@ or pass `visible: true` (and `speed: 0.5` for slow motion) to `game_open`.
 - `setTimeout` / `setInterval` still run on real time. Games that drive gameplay with timers are not fully
   deterministic yet.
 - Web Audio is not virtualized.
-- Browser games only. Godot (web export works today) and native engines are on the roadmap.
+- Native mode is Windows only and sees the game only through the screen. Engine plugins (Godot, Unity) that expose
+  internals and deterministic time are on the roadmap.
 
 ## Development
 
