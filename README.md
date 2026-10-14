@@ -7,7 +7,7 @@ play it, and can't tell you that the player falls through the floor on a slow la
 server that gives them eyes, hands and a pause button for any browser game (canvas, WebGL, three.js, Phaser,
 PixiJS, ...), **without touching the game's code**.
 
-**[Watch the 56 s demo](docs/gameprobe-demo.webm)**: a bug only slow machines see, an agent coaching its own
+**[Watch the 56 s demo](https://github.com/ahnminjae08043-glitch/gameprobe/blob/main/docs/gameprobe-demo.webm)**: a bug only slow machines see, an agent coaching its own
 controller to a frame-perfect run, a Unity bug caught by path, and a 52 m first-person climb. Every frame in it
 was captured by stepping gameprobe's virtual time.
 
