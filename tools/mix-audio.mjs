@@ -4,7 +4,8 @@
 // Audio (Pixabay Content License, no attribution required) goes in out/audio:
 //   synthwave.mp3  "Synthwave Driving" by JonasBlakewood
 //   sfx-boom.mp3 "Cinematic Impact Boom 05" (Universfield), sfx-whoosh.mp3 "Whoosh Cinematic" (DRAGON-STUDIO),
-//   sfx-error.mp3 "Quick Error Signal" (Virtual_Vibes), sfx-success.mp3 "Success Notification" (Universfield),
+//   sfx-fail.mp3 "8 Bit Video Game Fail - version 2" (Make_More_Sound),
+//   sfx-glitch.mp3 "Glitch and distortion sound effects" (abirkhan006), sfx-success.mp3 "Success Notification" (Universfield),
 //   sfx-reward.mp3 "Reward Chime" (Universfield)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,10 +44,10 @@ const sfx = [
   ['whoosh', marks.replay - 0.15, 0.55],
   ['whoosh', marks.brand - 0.15, 0.55],
   ['whoosh', marks.ghosts - 0.15, 0.5],
-  ['error', marks.ghostDied, 0.5],
+  ['fail', marks.ghostDied, 0.6],
   ['success', marks.best, 0.8],
   ['whoosh', marks.unity - 0.15, 0.5],
-  ['error', marks.plus2, 0.9],
+  ['glitch', marks.plus2, 0.85],
   ['success', marks.compare + 0.3, 0.8],
   ['whoosh', marks.ascend - 0.15, 0.5],
   ['reward', marks.summit, 0.9],

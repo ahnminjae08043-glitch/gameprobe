@@ -5,7 +5,8 @@ All audio is from Pixabay under the Pixabay Content License (free to use, no att
 - Music: "Synthwave Driving" by JonasBlakewood
 - "Cinematic Impact Boom 05" by Universfield
 - "Whoosh Cinematic" by DRAGON-STUDIO
-- "Quick Error Signal" by Virtual_Vibes
+- "8 Bit Video Game Fail - version 2" by Make_More_Sound
+- "Glitch and distortion sound effects" by abirkhan006
 - "Success Notification" by Universfield
 - "Reward Chime" by Universfield
 
