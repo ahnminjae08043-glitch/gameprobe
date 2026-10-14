@@ -170,7 +170,7 @@ Tested on an Unreal Engine D3D12 game. It went through the main menu, save slots
 screen with the keyboard, then walked and turned the camera. The game's own tutorial checklist ticked "movement"
 and "camera". Things learned the hard way:
 
-- Many engine UIs ignore synthetic mouse clicks on menus. Use the keyboard (Enter / arrows).
+- Use the controls the game was designed for. Some games are keyboard-only in menus (Enter / arrows), so a click there does nothing.
 - The helper is a small C# program compiled on first use with the `csc.exe` that ships with Windows. Nothing to install.
 - **Games with anti-cheat are refused** (EasyAntiCheat, BattlEye, Vanguard, ...). Injecting input into them or
   suspending them can get an account banned.

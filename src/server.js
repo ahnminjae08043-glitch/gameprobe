@@ -41,8 +41,8 @@ NATIVE MODE (any engine: Unity/Unreal/Godot builds, any Windows game): game_open
 attaches to a running one. There is no access to internals, so: time is real but the process is FROZEN between your
 calls and runs only during game_step (use ms); state comes from the screen (screenshots, filmstrip, and
 untilScreen {region, change} or {region, color} to stop when part of the screen changes). game_eval and game_run
-are unavailable. Input is real OS input (scancodes), so it also moves the user's actual mouse. Prefer keyboard
-navigation for menus (Enter / arrows): many engine UIs ignore synthetic clicks. Never touch games with anti-cheat.`;
+are unavailable. Input is real OS input (scancodes), so it also moves the user's actual mouse. Use
+the controls the game expects: some games navigate menus only with the keyboard (Enter / arrows). Never touch games with anti-cheat.`;
 
 // 열린 게임 종류에 따라 웹 세션 또는 네이티브 세션을 쓴다. 도구는 같다.
 const web = new Session();
