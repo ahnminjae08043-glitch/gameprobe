@@ -90,11 +90,13 @@ Requires Node 18+ and Chrome or Edge installed (Edge ships with Windows). Withou
 `npx playwright install chromium` once.
 
 ```bash
-git clone https://github.com/ahnminjae08043-glitch/gameprobe && cd gameprobe && npm install
-claude mcp add gameprobe -- node /absolute/path/to/gameprobe/src/server.js
+claude mcp add gameprobe -- npx -y gameprobe
 ```
 
-Any MCP client works. The command is `node /absolute/path/to/gameprobe/src/server.js` over stdio.
+Any MCP client works: the server is `npx -y gameprobe` over stdio.
+
+Unity: Package Manager → *Add package from git URL* →
+`https://github.com/ahnminjae08043-glitch/gameprobe.git?path=unity/com.gameprobe.unity`
 
 Then ask your agent something like *"open my game in ./game with gameprobe and check that the player can't
 fall through platforms at low frame rates"*.
@@ -191,8 +193,8 @@ or pass `visible: true` (and `speed: 0.5` for slow motion) to `game_open`.
 ## Development
 
 ```bash
-npm test                      # MCP end-to-end + determinism (uses a three.js game next to this repo)
-node test/sweep.mjs           # the fps sweep on the demo game
+npm test                         # controller, determinism and fps sweep on the bundled demo game
+unity/build-testgame.sh          # build the Unity test game (needs Unity 6), then node test/unity-mcp.mjs
 ```
 
 MIT

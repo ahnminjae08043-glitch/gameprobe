@@ -1,21 +1,28 @@
 {
   "name": "gameprobe",
   "version": "0.1.0",
-  "description": "Let coding agents play, see and verify web games",
+  "description": "Let your coding agent actually play the game it just wrote. MCP server: virtual time, state watching, per-frame controllers for web games, a Unity plugin, and a screen-based fallback for any Windows game.",
   "main": "src/session.js",
   "scripts": {
-    "test": "node test/mcp-e2e.mjs ../ascend && node test/determinism.mjs ../ascend"
+    "test": "node test/control.mjs && node test/control-reset.mjs && node test/sweep.mjs"
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "game",
+    "gamedev",
     "testing",
-    "playwright",
+    "playtest",
+    "qa",
     "ai-agent",
+    "claude",
+    "unity",
     "webgl",
-    "threejs"
+    "threejs",
+    "phaser",
+    "playwright"
   ],
-  "author": "",
+  "author": "ahnminjae08043-glitch",
   "license": "MIT",
   "type": "module",
   "dependencies": {
@@ -28,5 +35,21 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "files": [
+    "src/",
+    "native/",
+    "examples/",
+    "unity/com.gameprobe.unity/",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ahnminjae08043-glitch/gameprobe.git"
+  },
+  "homepage": "https://github.com/ahnminjae08043-glitch/gameprobe#readme",
+  "bugs": {
+    "url": "https://github.com/ahnminjae08043-glitch/gameprobe/issues"
   }
 }
