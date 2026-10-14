@@ -5,6 +5,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { Session } from './session.js';
 import { NativeSession } from './native.js';
+import { UnitySession } from './unity.js';
+import fs from 'node:fs';
+import nodePath from 'node:path';
 
 const INSTRUCTIONS = `gameprobe lets you play and verify a web game (canvas/WebGL/three.js/Phaser/etc.) without changing its code.
 
@@ -25,6 +28,15 @@ Typical loop:
 To find bugs, state the expectation as an until/watch expression (e.g. until: "player.y < -50" to catch falling
 through the floor) rather than eyeballing screenshots.
 
+UNITY MODE (Unity builds with the com.gameprobe.unity package): game_open {exe} detects it. The game is held inside the
+engine between calls and advances exactly N frames at a fixed dt, like web mode. State is read by PATH instead of JS:
+"Player.transform.position.y", "Player.PlayerController.grounded" (component by type name), "#GameManager.score"
+(first object of a type), "GameManager.Instance.score" (static), "[Main Camera].transform.position" (names with spaces).
+watch/until take a path or a JS expression using $("path"). game_eval runs JS with await-able helpers: $(path),
+$set(path, value), $call(path, ...args), $inspect(path), $tree(depth, root). Start with game_eval "$tree()".
+Input goes into the Input System (KeyW, Space, ArrowUp, mouse buttons, look) without touching the real mouse.
+game_input key press / mouse click are applied on the next stepped frame.
+
 NATIVE MODE (any engine: Unity/Unreal/Godot builds, any Windows game): game_open {exe} launches it, or {window: "title regex"}
 attaches to a running one. There is no access to internals, so: time is real but the process is FROZEN between your
 calls and runs only during game_step (use ms); state comes from the screen (screenshots, filmstrip, and
@@ -35,7 +47,14 @@ navigation for menus (Enter / arrows): many engine UIs ignore synthetic clicks. 
 // 열린 게임 종류에 따라 웹 세션 또는 네이티브 세션을 쓴다. 도구는 같다.
 const web = new Session();
 const native = new NativeSession();
+const unity = new UnitySession();
 let session = web;
+
+// exe 옆에 UnityPlayer.dll 과 <이름>_Data 폴더가 있으면 Unity 빌드다
+function isUnityBuild(exe) {
+  const dir = nodePath.dirname(exe), base = nodePath.basename(exe, nodePath.extname(exe));
+  return fs.existsSync(nodePath.join(dir, 'UnityPlayer.dll')) && fs.existsSync(nodePath.join(dir, base + '_Data'));
+}
 const server = new McpServer({ name: 'gameprobe', version: '0.1.0' }, { instructions: INSTRUCTIONS });
 
 const text = (obj) => ({ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj) });
@@ -56,7 +75,9 @@ server.registerTool('game_open', {
   title: 'Open a game',
   description: 'Open a game. Web: give dir (served for you) or url; runs in a headless browser with virtual time. Native (any engine, Windows): give exe to launch, or window (title/exe regex) or pid to attach; the process is frozen between calls. Closes any previously open game. Starts paused.',
   inputSchema: {
-    exe: z.string().optional().describe('Native: path to the game executable to launch'),
+    exe: z.string().optional().describe('Path to a game executable. Unity builds containing the gameprobe package open in Unity mode (frame-exact, state by path); anything else opens in native mode'),
+    mode: z.enum(['auto', 'unity', 'native']).optional().describe('Force a mode for exe (default auto)'),
+    unity: z.union([z.string(), z.number()]).optional().describe('Attach to a running Unity game started with -gameprobe-port <port>: give the port'),
     args: z.array(z.string()).optional().describe('Native: command line arguments'),
     window: z.string().optional().describe('Native: attach to a running game whose window title or process name matches this regex'),
     pid: z.number().int().optional().describe('Native: attach to this process id'),
@@ -75,9 +96,25 @@ server.registerTool('game_open', {
     seed: z.number().int().nullable().optional().describe('Math.random seed for reproducible runs (default 1). null keeps the real Math.random'),
   },
 }, wrap(async (a) => {
-  await web.close(); await native.close();
-  session = a.exe || a.window || a.pid ? native : web;
-  const info = await session.open(a);
+  await web.close(); await native.close(); await unity.close();
+  const mode = a.mode || 'auto';
+  let info;
+  if (a.unity || mode === 'unity' || (mode === 'auto' && a.exe && isUnityBuild(a.exe))) {
+    session = unity;
+    try {
+      info = await unity.open({ ...a, timeoutMs: a.unity ? 5000 : 20000 });
+    } catch (e) {
+      await unity.close();
+      if (!e.noPlugin || mode === 'unity' || a.unity) throw e;
+      // Unity 빌드지만 gameprobe 패키지가 없다: 화면 기반 범용 폴백으로 연다
+      session = native;
+      info = await native.open(a);
+      info.notes.unshift('This is a Unity build without the gameprobe package (com.gameprobe.unity), so it opened in native mode. Add the package for frame-exact control and state reading.');
+    }
+  } else {
+    session = a.exe || a.window || a.pid || mode === 'native' ? native : web;
+    info = await session.open(a);
+  }
   const out = [text(info)];
   if (a.screenshot !== false) out.push(image(await session.screenshot()));
   return out;
@@ -133,7 +170,8 @@ server.registerTool('game_run', {
       input: z.array(z.any()).optional(),
       eval: z.string().optional(),
       step: z.object({
-        frames: z.union([z.number().int(), z.string()]).optional(), dt: z.union([z.number(), z.string()]).optional(), hold: Hold, look: Look,
+        frames: z.union([z.number().int(), z.string()]).optional(), dt: z.union([z.number(), z.string()]).optional(),
+        hold: z.any().optional().describe('As game_step; "$name" may stand for a whole array, e.g. { keys: "$keys" }'), look: z.any().optional(),
         watch: z.array(z.string()).optional(), every: z.number().int().optional(), until: z.string().optional(),
       }).optional(),
     })),
@@ -149,9 +187,10 @@ server.registerTool('game_control', {
 
 policy is a JS function body. It receives ctx and returns the input state wanted for this frame:
   return { keys: ["ArrowRight", "Space"], buttons: ["left"], look: { dx: 3, dy: 0 } }
-Keys/buttons listed are held down; anything not listed is released (keydown/keyup events are generated for you). Read game state from page globals directly (e.g. game.player.x). ctx = { frame (global), i (frames since this controller started), t, dt, mem, held, buttons, log(msg) }: mem persists across frames for your own state machine; log() records up to 200 lines with frame numbers. When until becomes true the run stops on that frame, after your policy already ran for it.
+Keys/buttons listed are held down; anything not listed is released (keydown/keyup events are generated for you). Read game state from page globals directly (e.g. game.player.x). ctx = { frame (global), i (frames since this controller started), t, dt, mem, held, buttons, log(msg) }: mem persists across frames for your own state machine; log() records up to 200 lines, each tagged with ctx.i (frames since this controller started). When until becomes true the run stops on that frame, after your policy already ran for it.
 Example: const p = game.player; if (!ctx.mem.phase) ctx.mem.phase = "run"; if (p.x > 600 && p.onGround) { ctx.log("jump at " + p.x); return { keys: ["ArrowRight", "Space"] }; } return { keys: ["ArrowRight"] };
-Runs on virtual time like game_step, so results are deterministic: fix the code and rerun from the same state (use game_open again, or game_run with steps [{eval: ...}] style setup). Web mode only for now.`,
+Runs on virtual time like game_step, so results are deterministic: fix the code and rerun from the same state with reset: true.
+UNITY MODE: the policy runs between frames and reads the game through $("path"), e.g. const y = $("Player.transform.position.y"); paths must be string literals (or listed in read). Not available in native mode.`,
   inputSchema: {
     policy: z.string().describe('JS function body; gets ctx, returns { keys?, buttons?, look? }'),
     frames: z.number().int().min(1).max(36000).optional().describe('Default 600 (10 s at 60 fps)'),
@@ -160,11 +199,12 @@ Runs on virtual time like game_step, so results are deterministic: fix the code 
     watch: z.array(z.string()).optional(), every: z.number().int().optional(),
     samples: z.number().int().min(2).max(200).optional().describe('Max samples per numeric watch series (default 12)'),
     reset: z.boolean().optional().describe('Reopen the game fresh (same seed) before running, so each attempt starts from the identical state'),
+    read: z.array(z.string()).optional().describe('Unity mode: extra paths to read every frame when the policy builds paths dynamically'),
     shots: z.number().int().min(0).max(24).optional().describe('Also return a filmstrip: the run is split into this many equal parts and the screen is captured after each. If until stops the run early, fewer tiles are returned (default 0)'),
     cols: z.number().int().min(1).max(8).optional(), scale: z.number().min(0.1).max(1).optional(),
   },
 }, wrap(async (a) => {
-  if (!session.control) throw new Error('game_control is web-only for now');
+  if (!session.control) throw new Error('game_control works in web and Unity mode, not native mode');
   const r = await session.control(a);
   if (r.ok === false) return [text(r)];
   const out = [text(r.summary)];
@@ -211,7 +251,7 @@ server.registerTool('game_logs', {
     types: z.array(z.string()).optional().describe('Filter, e.g. ["error","pageerror","requestfailed","http","warning","log"]'),
     clear: z.boolean().optional(),
   },
-}, wrap(async (a) => [text(session.getLogs(a))]));
+}, wrap(async (a) => [text(await session.getLogs(a))]));
 
 server.registerTool('game_realtime', {
   title: 'Run in real time',
@@ -225,7 +265,7 @@ server.registerTool('game_close', {
   inputSchema: {},
 }, wrap(async () => { await session.close(); return [text('closed')]; }));
 
-const shutdown = async () => { await native.close(); await web.close(); process.exit(0); };
+const shutdown = async () => { await unity.close(); await native.close(); await web.close(); process.exit(0); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 process.stdin.on('close', shutdown);

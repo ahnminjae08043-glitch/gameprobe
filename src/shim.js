@@ -103,7 +103,7 @@ export function shim(seed) {
   function runPolicy() {
     const c = ctl;
     const ctx = { frame, i: c.i++, t: clock(), dt: c.dt, mem: c.mem, held: [...c.keys], buttons: [...c.buttons],
-      log: (m) => { if (c.logs.length < 200) c.logs.push([frame, String(m).slice(0, 200)]); } };
+      log: (m) => { if (c.logs.length < 200) c.logs.push([c.i - 1, String(m).slice(0, 200)]); } };
     let r;
     try { r = c.fn(ctx) || {}; } catch (e) {
       // 첫 줄(메시지)과 정책 코드 안의 위치만 남긴다

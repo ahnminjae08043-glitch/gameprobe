@@ -3,3 +3,12 @@ out/
 eval/*.jsonl
 eval/*.err
 eval/mcp.json
+
+# Unity
+unity/TestGame/Library/
+unity/TestGame/Logs/
+unity/TestGame/Temp/
+unity/TestGame/UserSettings/
+unity/TestGame/Build*/
+unity/TestGame/obj/
+unity/*.log

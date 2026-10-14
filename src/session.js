@@ -318,7 +318,7 @@ until ${until}` : ''));
           if (st.step) {
             const r = await this.step(st.step);
             if (r.untilMet !== undefined) row.untilMet = r.untilMet;
-            if (r.watch) row.watch = r.watch;
+            if (r.watch) row.watch = Object.assign(row.watch || {}, r.watch);
             if (r.frameErrors) notes.push(...r.frameErrors.map((e) => `frame ${e.frame}: ${String(e.error).split('\n')[0]}`));
             row.frame = r.frame;
           }

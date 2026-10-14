@@ -1,0 +1,13 @@
+{
+  "name": "GameProbe.Runtime",
+  "rootNamespace": "GameProbe",
+  "references": ["Unity.InputSystem"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true,
+  "versionDefines": [
+    { "name": "com.unity.inputsystem", "expression": "1.0.0", "define": "GAMEPROBE_INPUTSYSTEM" }
+  ],
+  "noEngineReferences": false
+}

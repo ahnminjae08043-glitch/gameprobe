@@ -33,7 +33,7 @@ function buildHelper() {
   return exe;
 }
 
-class Helper {
+export class Helper {
   constructor() {
     this.proc = spawn(buildHelper(), [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.waiting = new Map();

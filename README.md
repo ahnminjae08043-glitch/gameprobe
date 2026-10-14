@@ -75,7 +75,7 @@ The same controller also finished unchanged at 30 fps.
 |---|---|
 | `game_open` | Open a folder (served for you, no cache) or a URL. Starts paused. |
 | `game_step` | Advance N frames at `dt`, holding keys/buttons, moving the view, with `watch` / `until`. |
-| `game_control` | Run your controller every frame (keys / buttons / look from game state). Human speed and faster. |
+| `game_control` | Run your controller every frame (keys / buttons / look from game state). Human speed and faster. Web and Unity. |
 | `game_run` | A whole scenario in one call. Add `sweep` to rerun it from a fresh, identical state for each value. |
 | `game_input` | One-off key / mouse / text / wheel / look events (trusted events, not synthetic). |
 | `game_filmstrip` | Grid image of frames over time. |
@@ -98,6 +98,48 @@ Any MCP client works. The command is `node /absolute/path/to/gameprobe/src/serve
 
 Then ask your agent something like *"open my game in ./game with gameprobe and check that the player can't
 fall through platforms at low frame rates"*.
+
+## Unity
+
+Add the package and your game becomes as controllable as a web game: held between frames inside the engine,
+advanced an exact number of frames at a fixed delta time, every value readable by path, input fed straight into
+the Input System.
+
+1. Package Manager → *Add package from git URL* (or `file:` path) → `com.gameprobe.unity`
+2. Build as usual. The package does nothing unless the player is started with `-gameprobe-port <port>`,
+   which gameprobe does for you.
+3. `game_open { exe: "Build/MyGame.exe" }`. Unity builds are detected automatically.
+
+Read and write the game by path:
+
+```
+"Player.transform.position.y"          GameObject → member
+"Player.PlayerController.grounded"     component by type name → field (private too)
+"#GameManager.score"                   first active object of a type
+"GameManager.Instance.score"           static member
+"[Main Camera].transform.position"     names with spaces
+```
+
+`watch` / `until` / `game_control` take a path or a JS expression with `$("path")`. `game_eval` has `$tree()`,
+`$inspect(path)`, `$set(path, value)` and `$call(path, ...args)` for exploring and poking.
+
+**Blind test.** We built a small 3D coin game (`unity/TestGame`) with one planted bug: the player has a second
+"feet" collider, so a coin touched by both counts twice. An agent that had never seen the project found it, then
+**proved the cause by toggling the feet collider in a sweep** (+2 with it on, +1 with it off). It also found two
+bugs we had not planted:
+
+| Bug | Evidence the agent produced |
+|---|---|
+| Coin counted twice (planted) | score 9 after 5 coins; sweep `Feet.enabled` true/false gives +2/+1 |
+| Mid-air re-jumps | mashing Space chained 4 jumps in one rise; `grounded` stays true up to 0.7 m above the floor |
+| Sticking to walls | holding W into a platform side hangs the player for 5+ s; setting friction to 0 removes it |
+
+Notes:
+- Same machine, same inputs, same result. Unity physics is not guaranteed bit-identical across different CPUs.
+- Input works through the Input System package. The legacy `Input.GetKey` manager cannot be driven.
+- Screenshots fall back to rendering the cameras when the back buffer cannot be read, so `OnGUI` text may be
+  missing from images. Read those values by path instead.
+- Built players only for now. Editor play mode is next.
 
 ## Any game, any engine (native mode, Windows)
 
@@ -143,8 +185,7 @@ or pass `visible: true` (and `speed: 0.5` for slow motion) to `game_open`.
 - `setTimeout` / `setInterval` still run on real time. Games that drive gameplay with timers are not fully
   deterministic yet.
 - Web Audio is not virtualized.
-- Native mode is Windows only and sees the game only through the screen. Engine plugins (Godot, Unity) that expose
-  internals and deterministic time are on the roadmap.
+- Native mode is Windows only and sees the game only through the screen. Unity has a plugin; Godot is next.
 
 ## Development
 

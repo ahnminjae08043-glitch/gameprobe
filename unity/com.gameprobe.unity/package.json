@@ -1,0 +1,9 @@
+{
+  "name": "com.gameprobe.unity",
+  "version": "0.1.0",
+  "displayName": "gameprobe",
+  "description": "Lets a coding agent play and verify your Unity game: frame-exact pause/step, read any component value by path, inject Input System keyboard/mouse input, capture frames. Only active when the player is started with -gameprobe-port <port>, so shipped builds are unaffected.",
+  "unity": "2022.3",
+  "author": { "name": "gameprobe" },
+  "license": "MIT"
+}
