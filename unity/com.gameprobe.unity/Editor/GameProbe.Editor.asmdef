@@ -1,0 +1,8 @@
+{
+  "name": "GameProbe.Editor",
+  "rootNamespace": "GameProbe.EditorTools",
+  "references": ["GameProbe.Runtime"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "autoReferenced": true
+}

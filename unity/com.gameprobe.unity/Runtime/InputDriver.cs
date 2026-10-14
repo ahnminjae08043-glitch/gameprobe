@@ -27,6 +27,10 @@ namespace GameProbe
         {
             // Queued events would be dropped while the window is unfocused; the agent never focuses it.
             InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+            // in play mode, input reaches the game even when the Game view is not focused
+            InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
             if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
             if (Mouse.current == null) InputSystem.AddDevice<Mouse>();
         }

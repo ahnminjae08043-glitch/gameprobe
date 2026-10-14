@@ -77,7 +77,7 @@ server.registerTool('game_open', {
   inputSchema: {
     exe: z.string().optional().describe('Path to a game executable. Unity builds containing the gameprobe package open in Unity mode (frame-exact, state by path); anything else opens in native mode'),
     mode: z.enum(['auto', 'unity', 'native']).optional().describe('Force a mode for exe (default auto)'),
-    unity: z.union([z.string(), z.number()]).optional().describe('Attach to a running Unity game started with -gameprobe-port <port>: give the port'),
+    unity: z.union([z.string(), z.number()]).optional().describe('Attach to a running Unity game: a build started with -gameprobe-port <port>, or the Editor in play mode with Tools > gameprobe > Enable in Play Mode (default port 47777)'),
     args: z.array(z.string()).optional().describe('Native: command line arguments'),
     window: z.string().optional().describe('Native: attach to a running game whose window title or process name matches this regex'),
     pid: z.number().int().optional().describe('Native: attach to this process id'),

@@ -137,9 +137,10 @@ bugs we had not planted:
 Notes:
 - Same machine, same inputs, same result. Unity physics is not guaranteed bit-identical across different CPUs.
 - Input works through the Input System package. The legacy `Input.GetKey` manager cannot be driven.
-- Screenshots fall back to rendering the cameras when the back buffer cannot be read, so `OnGUI` text may be
-  missing from images. Read those values by path instead.
-- Built players only for now. Editor play mode is next.
+- In some built players the back buffer cannot be read; screenshots then fall back to rendering the cameras and
+  `OnGUI` text is missing from images (it is captured in the Editor). Read those values by path instead.
+- In the Editor: **Tools > gameprobe > Enable in Play Mode**, press Play, then `game_open { unity: 47777 }`.
+  Play mode starts paused and uses the editor's own pause between steps, so the editor stays usable.
 
 ## Any game, any engine (native mode, Windows)
 

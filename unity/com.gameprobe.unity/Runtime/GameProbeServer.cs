@@ -20,6 +20,9 @@ using System.Text;
 using System.Threading;
 using UnityEngine;
 using UnityEngine.LowLevel;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace GameProbe
 {
@@ -79,12 +82,24 @@ namespace GameProbe
             InsertGate();
             listener = new TcpListener(IPAddress.Loopback, port);
             listener.Start();
+            Application.quitting += Shutdown;
+#if UNITY_EDITOR
+            EditorApplication.update += Drain;   // keeps serving while the editor is paused
+            Debug.Break();                        // start paused after the first frame, like a build
+#endif
             new Thread(AcceptLoop) { IsBackground = true, Name = "gameprobe" }.Start();
             Debug.Log("[gameprobe] listening on 127.0.0.1:" + port);
         }
 
+        // In the editor the main thread cannot be blocked (the whole editor would freeze), so play mode uses
+        // the editor's own pause: paused while the agent thinks, unpaused for exactly N frames, Debug.Break after.
+        static bool EditorMode => Application.isEditor;
+
         static int PortFromArgs()
         {
+#if UNITY_EDITOR
+            if (EditorPrefs.GetBool("gameprobe.enabled", false)) return EditorPrefs.GetInt("gameprobe.port", 47777);
+#endif
             int p = IntArg("-gameprobe-port", 0);
             if (p > 0) return p;
             var env = Environment.GetEnvironmentVariable("GAMEPROBE_PORT");
@@ -96,6 +111,19 @@ namespace GameProbe
             var args = Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length - 1; i++) if (args[i] == name && int.TryParse(args[i + 1], out int v)) return v;
             return dflt;
+        }
+
+        // Exiting play mode: free the port (play mode without domain reload keeps statics alive)
+        static void Shutdown()
+        {
+#if UNITY_EDITOR
+            EditorApplication.update -= Drain;
+#endif
+            try { listener?.Stop(); } catch { }
+            lock (writeLock) { try { client?.Close(); } catch { } client = null; writer = null; }
+            listener = null;
+            running = true;
+            Time.captureDeltaTime = 0;
         }
 
         static string Trim(string s, int n) => s == null ? "" : s.Length > n ? s.Substring(0, n) : s;
@@ -152,7 +180,7 @@ namespace GameProbe
         static void Gate()
         {
             Drain();
-            if (!running && framesLeft <= 0)
+            if (!running && framesLeft <= 0 && !EditorMode)
             {
                 // hold the game here until the agent asks for frames
                 while (!running && framesLeft <= 0)
@@ -203,6 +231,7 @@ namespace GameProbe
                 if (stepReads.Count > 0) res["series"] = stepSeries;
                 if (wantCapture) { res["jpeg"] = Jpeg(captureWidth); res["captureMethod"] = captureMethod; }
                 var r = current; current = null;
+                if (EditorMode && !running) Debug.Break();   // pause the editor right after this frame
                 Reply(r, res);
             }
         }
@@ -326,7 +355,7 @@ namespace GameProbe
                     Reply(r, new Dictionary<string, object> {
                         { "unity", Application.unityVersion }, { "product", Application.productName }, { "scene", UnityEngine.SceneManagement.SceneManager.GetActiveScene().name },
                         { "inputSystem", InputDriver.Available }, { "frame", Time.frameCount }, { "seed", seed }, { "screen", new List<object> { Screen.width, Screen.height } },
-                        { "editor", Application.isEditor } });
+                        { "editor", Application.isEditor }, { "port", ((IPEndPoint)listener.LocalEndpoint).Port } });
                     return;
 
                 case "step":
@@ -349,6 +378,9 @@ namespace GameProbe
                     current = r;
                     running = false;
                     framesLeft = stepFrames;
+#if UNITY_EDITOR
+                    EditorApplication.isPaused = false;
+#endif
                     return;
                 }
 
@@ -390,6 +422,9 @@ namespace GameProbe
                 case "realtime":
                     running = b.TryGetValue("running", out var run) && run is true;
                     if (running) Time.captureDeltaTime = 0;
+#if UNITY_EDITOR
+                    EditorApplication.isPaused = !running;
+#endif
                     Reply(r, new Dictionary<string, object> { { "running", running }, { "frame", Time.frameCount } });
                     return;
 
